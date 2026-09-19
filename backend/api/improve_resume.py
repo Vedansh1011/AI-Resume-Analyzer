@@ -30,6 +30,18 @@ def improve_resume_endpoint(resume_data: dict):
                 )
             )
 
+        if (
+            "temporarily unavailable" in error_message.lower()
+            or "503" in error_message
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "The AI service is temporarily unavailable. "
+                    "Please try again in a few moments."
+                )
+            )
+
         raise HTTPException(
             status_code=500,
             detail="Unable to generate resume improvements."
