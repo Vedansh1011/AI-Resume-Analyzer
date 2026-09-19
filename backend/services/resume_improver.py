@@ -1,14 +1,18 @@
 import json
 import logging
 import os
+import time
 
 from dotenv import load_dotenv
 from google import genai
-from google.genai.errors import ClientError
+from google.genai.errors import ClientError, ServerError
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 3
+INITIAL_RETRY_DELAY = 1
 
 
 def improve_resume(resume_data: dict) -> dict:
@@ -223,10 +227,45 @@ RESUME DATA:
             "Sending resume to Gemini for improvement."
         )
 
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt
-        )
+        response = None
+
+        # Retry temporary Gemini 503 errors.
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt
+                )
+                break
+
+            except ServerError as error:
+                if attempt >= MAX_RETRIES:
+                    logger.error(
+                        "Gemini remained unavailable after %s attempts.",
+                        MAX_RETRIES
+                    )
+
+                    raise RuntimeError(
+                        "The AI service is temporarily unavailable. "
+                        "Please try again in a few moments."
+                    ) from error
+
+                delay = INITIAL_RETRY_DELAY * (2 ** (attempt - 1))
+
+                logger.warning(
+                    "Gemini returned 503 UNAVAILABLE. "
+                    "Retrying in %s seconds (attempt %s/%s).",
+                    delay,
+                    attempt,
+                    MAX_RETRIES
+                )
+
+                time.sleep(delay)
+
+        if response is None:
+            raise RuntimeError(
+                "The AI service did not return a response."
+            )
 
         text = response.text.strip()
 
